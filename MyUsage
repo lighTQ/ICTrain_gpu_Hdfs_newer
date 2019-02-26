@@ -1,0 +1,18 @@
+local test:
+
+python testLocalExecute  -gpus="0,1" -img_src="/root/data/test/"    -width=224                                   \
+-height=224                                  \
+-test_percent=0.1                           \
+-validata_percent=0.1                         \
+-channel_num=3                                \
+-batch_size=16                                \
+-lr=0.0015                                   \
+-epochs=3                                    \
+-save_dir="/root/data/mymodel"                \
+-model_name="/alexnet"                        \
+-model_id="sdfausdf001"                       \
+-user_Optimizer=adam                          \
+-model_version="v0.1"                         \
+-model_userid="1409234ju1234"                 \
+-ams_id="213425t"                             \
+-jsonrpcMlClientPoint="192.168.10.21"
