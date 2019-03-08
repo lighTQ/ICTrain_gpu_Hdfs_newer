@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="7349d612-e853-4cea-9401-db479c9209a4" name="联调" url="http://192.168.10.22">
+        <fileTransfer host="192.168.10.22" port="31254" accessType="SFTP">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+          <option name="port" value="31254" />
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>

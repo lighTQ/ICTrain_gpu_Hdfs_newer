@@ -8,6 +8,7 @@ import sys
 
 import cv2
 import keras.backend.tensorflow_backend as KTF
+from keras.regularizers import l2
 from jsonrpc import Server
 from keras.callbacks import ModelCheckpoint
 from keras.layers import *
@@ -52,10 +53,10 @@ def parse_arguments(argv):
 
     return vars(ap.parse_args())
 
-
 arguments = parse_arguments(sys.argv[1:])
 gpus = arguments['gpus']
 
+print(' vgg16 get gpus is ', gpus)
 # 控制gpu使用,指定使用哪一块显卡
 os.environ["CUDA_VISIBLE_DEVICES"] = gpus
 print(" current gpu list is : ", gpus)
@@ -104,17 +105,15 @@ def preprocessing_img(img_src, width, height, validate_percent, test_percent, HD
             os.makedirs(downloaded_path)
 
         try:
-
             ret = subprocess.run(['/root/hadoop-2.7.3/bin/hadoop', "fs", "-get", img_src, downloaded_path])
             if ret.returncode == 0:
                 print('download successfully, data saved in local path : %s' % local_img_path)
         except Exception as e:
             print("un expected error").format(e)
 
-
     else:
-        print("使用本地数据源")
-
+        print("使用本地数据源", img_src)
+        
         local_img_path = img_src
 
     categorical_num = len(set(os.listdir(local_img_path)))
@@ -124,7 +123,7 @@ def preprocessing_img(img_src, width, height, validate_percent, test_percent, HD
         for index, filename in enumerate(os.listdir(os.path.join(local_img_path, folder))):
             # imgFile = os.path.join(img_src, (folder+"/"+filename))
             imgFile = os.path.join(local_img_path, folder, filename)
-            # print(index, imgFile)
+            #print(index, imgFile)
             image = cv2.imread(imgFile)
             if isinstance(image, np.ndarray):
                 pass
@@ -134,48 +133,100 @@ def preprocessing_img(img_src, width, height, validate_percent, test_percent, HD
             X.append(img)
             y.append(i)
     X = np.array(X).astype('float32') / 255.0
-    y = np_utils.to_categorical(y, categorical_num).reshape([-1, 1, 1, categorical_num])
-    print(' firs x shape :', X.shape, '  first y shape :', y.shape)
+    y = np_utils.to_categorical(y, categorical_num)
+    print(X.shape)
 
     x_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_percent, shuffle=True)
     X_train, X_valid, y_train, y_valid = train_test_split(x_train, y_train, test_size=validate_percent, shuffle=True)
     print('preprocessing images is OK..')
     return X_train, X_valid, X_test, y_train, y_valid, y_test, categorical_num,local_img_path
 
-
 # keras.backend.clear_session()
-def build_model(width, height, channel_num, num_classes, user_optimizer='adam'):
-    inputs = Input((width, height, channel_num))
+# 模型构建
 
-    x = (Conv2D(96, (11, 11), strides=(4, 4), input_shape=(227, 227, 3), padding='valid', activation='relu',
-                kernel_initializer='uniform'))(inputs)
-    x = (MaxPooling2D(pool_size=(3, 3), strides=(2, 2)))(x)
-    x = (Conv2D(256, (5, 5), strides=(1, 1), padding='same', activation='relu', kernel_initializer='uniform'))(x)
-    x = (MaxPooling2D(pool_size=(3, 3), strides=(2, 2)))(x)
-    x = (Conv2D(384, (3, 3), strides=(1, 1), padding='same', activation='relu', kernel_initializer='uniform'))(x)
-    x = (Conv2D(384, (3, 3), strides=(1, 1), padding='same', activation='relu', kernel_initializer='uniform'))(x)
-    x = (Conv2D(256, (3, 3), strides=(1, 1), padding='same', activation='relu', kernel_initializer='uniform'))(x)
-    x = (MaxPooling2D(pool_size=(3, 3), strides=(2, 2)))(x)
+def inception_model(input, filters_1x1, filters_3x3_reduce, filters_3x3, filters_5x5_reduce, filters_5x5,
+                    filters_pool_proj):
+    conv_1x1 = Conv2D(filters=filters_1x1, kernel_size=(1, 1), padding='same', activation='relu',
+                      kernel_regularizer=l2(0.01))(input)
 
-    x = Conv2D(4096, (5, 5), activation='relu', name='fc1')(x)
-    x = Conv2D(4096, (1, 1), activation='relu', name='fc2')(x)
+    conv_3x3_reduce = Conv2D(filters=filters_3x3_reduce, kernel_size=(1, 1), padding='same', activation='relu',
+                             kernel_regularizer=l2(0.01))(input)
 
-    all_optimizers = {'sgd': SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True),
-                      'rmsprop': RMSprop(lr=0.001, rho=0.9, epsilon=1e-6),
-                      'adagrad': Adagrad(lr=0.01, decay=1e-6),
-                      'adadelta': Adadelta(lr=1.0, rho=0.95, epsilon=1e-6),
-                      'adam': Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-8)
-                      # 'adamax': Adamax,
-                      # 'nadam': Nadam,
-                      # 'tfoptimizer': TFOptimizer,
-                      }
+    conv_3x3 = Conv2D(filters=filters_3x3, kernel_size=(3, 3), padding='same', activation='relu',
+                      kernel_regularizer=l2(0.01))(conv_3x3_reduce)
 
-    UserOptimizer = all_optimizers[user_optimizer]
-    print("use define optimier is ", UserOptimizer)
+    conv_5x5_reduce = Conv2D(filters=filters_5x5_reduce, kernel_size=(1, 1), padding='same', activation='relu',
+                             kernel_regularizer=l2(0.01))(input)
+
+    conv_5x5 = Conv2D(filters=filters_5x5, kernel_size=(5, 5), padding='same', activation='relu',
+                      kernel_regularizer=l2(0.01))(conv_5x5_reduce)
+
+    maxpool = MaxPooling2D(pool_size=(3, 3), strides=(1, 1), padding='same')(input)
+
+    maxpool_proj = Conv2D(filters=filters_pool_proj, kernel_size=(1, 1), strides=(1, 1), padding='same',
+                          activation='relu', kernel_regularizer=l2(0.01))(maxpool)
+
+    inception_output = concatenate([conv_1x1, conv_3x3, conv_5x5, maxpool_proj], axis=3)  # use tf as backend
+
+    return inception_output
+
+def build_model(width, height, channel_num, num_classes, UserOptimizer='adam'):
+    # input = Input(shape=(224, 224, 3))
+    input = Input(shape=(width, height, channel_num))
+
+    conv1_7x7_s2 = Conv2D(filters=64, kernel_size=(7, 7), strides=(2, 2), padding='same', activation='relu',
+                          kernel_regularizer=l2(0.01))(input)
+
+    maxpool1_3x3_s2 = MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='same')(conv1_7x7_s2)
+
+    conv2_3x3_reduce = Conv2D(filters=64, kernel_size=(1, 1), padding='same', activation='relu',
+                              kernel_regularizer=l2(0.01))(maxpool1_3x3_s2)
+
+    conv2_3x3 = Conv2D(filters=192, kernel_size=(3, 3), padding='same', activation='relu', kernel_regularizer=l2(0.01))(
+        conv2_3x3_reduce)
+
+    maxpool2_3x3_s2 = MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='same')(conv2_3x3)
+
+    inception_3a = inception_model(input=maxpool2_3x3_s2, filters_1x1=64, filters_3x3_reduce=96, filters_3x3=128,
+                                   filters_5x5_reduce=16, filters_5x5=32, filters_pool_proj=32)
+
+    inception_3b = inception_model(input=inception_3a, filters_1x1=128, filters_3x3_reduce=128, filters_3x3=192,
+                                   filters_5x5_reduce=32, filters_5x5=96, filters_pool_proj=64)
+
+    maxpool3_3x3_s2 = MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='same')(inception_3b)
+
+    inception_4a = inception_model(input=maxpool3_3x3_s2, filters_1x1=192, filters_3x3_reduce=96, filters_3x3=208,
+                                   filters_5x5_reduce=16, filters_5x5=48, filters_pool_proj=64)
+
+    inception_4b = inception_model(input=inception_4a, filters_1x1=160, filters_3x3_reduce=112, filters_3x3=224,
+                                   filters_5x5_reduce=24, filters_5x5=64, filters_pool_proj=64)
+
+    inception_4c = inception_model(input=inception_4b, filters_1x1=128, filters_3x3_reduce=128, filters_3x3=256,
+                                   filters_5x5_reduce=24, filters_5x5=64, filters_pool_proj=64)
+
+    inception_4d = inception_model(input=inception_4c, filters_1x1=112, filters_3x3_reduce=144, filters_3x3=288,
+                                   filters_5x5_reduce=32, filters_5x5=64, filters_pool_proj=64)
+
+    inception_4e = inception_model(input=inception_4d, filters_1x1=256, filters_3x3_reduce=160, filters_3x3=320,
+                                   filters_5x5_reduce=32, filters_5x5=128, filters_pool_proj=128)
+
+    maxpool4_3x3_s2 = MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='same')(inception_4e)
+
+    inception_5a = inception_model(input=maxpool4_3x3_s2, filters_1x1=256, filters_3x3_reduce=160, filters_3x3=320,
+                                   filters_5x5_reduce=32, filters_5x5=128, filters_pool_proj=128)
+
+    inception_5b = inception_model(input=inception_5a, filters_1x1=384, filters_3x3_reduce=192, filters_3x3=384,
+                                   filters_5x5_reduce=48, filters_5x5=128, filters_pool_proj=128)
+
+    averagepool1_7x7_s1 = AveragePooling2D(pool_size=(7, 7), strides=(7, 7), padding='same')(inception_5b)
+
+    x = Dropout(rate=0.4)(averagepool1_7x7_s1)
+    x = Flatten()(x)
 
     if (int(num_classes >= 2)):
-        x = Conv2D(num_classes, (1, 1), activation='softmax', name='predictions')(x)
-        model = Model(inputs, x)
+
+        x = Dense(units=num_classes, activation='softmax', kernel_regularizer=l2(0.01))(x)
+        model = Model(inputs=input, outputs=x)
 
         if G <= 1 and G > 0:
             print("[INFO] training with 1 GPU...")
@@ -187,35 +238,41 @@ def build_model(width, height, channel_num, num_classes, user_optimizer='adam'):
             parallel_model = model
         else:
             print("[INFO] training with {} GPUs...".format(G))
+            # we'll store a copy of the model on *every* GPU and then combine
+            # the results from the gradient updates on the CPU
+            # with tf.device("/cpu:0"):
+            # initialize the model
+            # make the model parallel(if you have more than 2 GPU)
             parallel_model = multi_gpu_model(model, gpus=G)
 
         parallel_model.compile(loss='categorical_crossentropy', optimizer=UserOptimizer, metrics=['accuracy'])
         print(parallel_model.summary())
-        parallel_model.compile(optimizer=UserOptimizer,
-                               loss='categorical_crossentropy',
-                               metrics=['accuracy'])
-    else:
 
-        x = Conv2D(num_classes, (1, 1), activation='sigmoid', name='predictions')(x)
-        model = Model(inputs, x)
+    else:
+        x = Dense(units=num_classes, activation='sigmoid', kernel_regularizer=l2(0.01))(x)
+
+        model = Model(inputs=input, outputs=x)
 
         if G <= 1 and G > 0:
             print("[INFO] training with 1 GPU...")
             parallel_model = model
-            # otherwise, we are compiling using multiple GPUs
+
+        # otherwise, we are compiling using multiple GPUs
         elif G < 0:
             print("[INFO] training with CPU...")
             parallel_model = model
         else:
             print("[INFO] training with {} GPUs...".format(G))
+            # we'll store a copy of the model on *every* GPU and then combine
+            # the results from the gradient updates on the CPU
+            # with tf.device("/cpu:0"):
+            # initialize the model
+            # make the model parallel(if you have more than 2 GPU)
             parallel_model = multi_gpu_model(model, gpus=G)
 
         parallel_model.compile(loss='binary_crossentropy', optimizer=UserOptimizer, metrics=['accuracy'])
         print(parallel_model.summary())
 
-        parallel_model.compile(optimizer=UserOptimizer,
-                               loss='binary_crossentropy',
-                               metrics=['accuracy'])
     return parallel_model
 
 
@@ -240,7 +297,7 @@ def topK_acc(y_test, X_test, num_classes):
     top4 = 0.0
     top5 = 0.0
 
-    class_probs = np.squeeze(model.predict(X_test))
+    class_probs = model.predict(X_test)
     for i, l in enumerate(np.argmax(y_test, axis=1)):
         class_prob = class_probs[i]
         top_5_values = (-class_prob).argsort()[:5]
@@ -280,18 +337,15 @@ def topK_acc(y_test, X_test, num_classes):
     return topk_dict
 
 
-# 具体计算评估指标函数(全卷积网络的预测值，和之前reshape的结果都要在这里做修改
+# 具体计算评估指标函数
+# 具体计算评估指标函数
 def call_back_metrics(X_train, X_valid, X_test, y_train, y_valid, y_test, model,local_img_path):
 
-    y_train = y_train.reshape([-1, num_classes])
-    y_valid = y_valid.reshape([-1, num_classes])
-    y_test = y_test.reshape([-1, num_classes])
-
     topk_acc_res = topK_acc(y_test, X_test, num_classes)
-
-    train_y_pred = np.argmax(np.squeeze(model.predict(X_train)), axis=1)
-    valid_y_pred = np.argmax(np.squeeze(model.predict(X_valid)), axis=1)
-    test_y_pred = np.argmax(np.squeeze(model.predict(X_test)), axis=1)
+    print('top_k acc is : ', topk_acc_res)
+    train_y_pred = np.argmax(np.asarray(model.predict(X_train)), axis=1)
+    valid_y_pred = np.argmax(np.asarray(model.predict(X_valid)), axis=1)
+    test_y_pred = np.argmax(np.asarray(model.predict(X_test)), axis=1)
 
     y_train = np.argmax(y_train, axis=1)
     y_valid = np.argmax(y_valid, axis=1)
@@ -316,9 +370,7 @@ def call_back_metrics(X_train, X_valid, X_test, y_train, y_valid, y_test, model,
                 'label_name': label_name,
                 'tok_acc_res': topk_acc_res
                 }
-    print(call_res)
     return  call_res
-
 
 
 if __name__ == '__main__':
@@ -326,6 +378,7 @@ if __name__ == '__main__':
     # 参数动态传递
     arguments = parse_arguments(sys.argv[1:])
     print(type(arguments))
+    print('dict content is :', arguments.items())
     img_src = arguments['img_src']
     width = arguments['width']
     height = arguments['height']
@@ -346,9 +399,10 @@ if __name__ == '__main__':
     ams_id = arguments['ams_id']
     jsonrpcMlClientPoint = arguments['jsonrpcMlClientPoint']
     print('ip address is ', jsonrpcMlClientPoint)
+    print('数据路径 :', img_src)
 
     # 数据集预处理
-    X_train, X_valid, X_test, y_train, y_valid, y_test, num_classes,local_img_path = preprocessing_img(img_src, width, height,
+    X_train, X_valid, X_test, y_train, y_valid, y_test, num_classes,local_img_path  = preprocessing_img(img_src, width, height,
                                                                                         validata_percent,
                                                                                         test_percent, HDFS_data=True)
     # 模型构建
@@ -390,11 +444,13 @@ if __name__ == '__main__':
     call_res = call_back_metrics(X_train, X_valid, X_test, y_train, y_valid, y_test, model,local_img_path)
     # 回调，向服务端发送评估指标
 
+
     try:
         response = http_client.modelTrain(str(call_res))
     except Exception as e:
-        print("un expected error").format(e)    # http_client.call("sayHelloWorld",call_res)
+        print("un expected error").format(e)
+
+    # http_client.call("sayHelloWorld",call_res)
 
     model.save(os.path.join(save_dir, model_name) + '.h5', overwrite=True)
     print('\r\nmodel has been saved in  ', os.path.join(save_dir, model_name) + '.h5')
-

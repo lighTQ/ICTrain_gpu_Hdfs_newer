@@ -1,12 +1,10 @@
 # -*- coding:utf-8 -*-
 
-
 import argparse
+import cv2
 import os
 import subprocess
 import sys
-
-import cv2
 import keras.backend.tensorflow_backend as KTF
 from jsonrpc import Server
 from keras.callbacks import ModelCheckpoint
@@ -102,7 +100,8 @@ def preprocessing_img(img_src, width, height, validate_percent, test_percent, HD
         if not os.path.exists(downloaded_path):
             os.makedirs(downloaded_path)
         try:
-            ret = subprocess.run(["hadoop", "fs", "-get", img_src, downloaded_path])
+
+            ret = subprocess.run(['/root/hadoop-2.7.3/bin/hadoop', "fs", "-get", img_src, downloaded_path])
             if ret.returncode == 0:
                 print('download successfully, data saved in local path : %s' % local_img_path)
         except Exception as e:
@@ -338,17 +337,25 @@ if __name__ == '__main__':
         model.load_weights(filepath)
         # 若成功加载前面保存的参数，输出下列信息
         print("-----=-=-=-  checkpoint_loaded=-=-=--------------")
-
-    history = model.fit(X_train, y_train, batch_size=batch_size, epochs=epochs,
-                        callbacks=[checkpoint,
-#                                   callbacks
-                                   ],
-                        validation_data=(X_valid, y_valid), verbose=1)
+    try:
+        history = model.fit(X_train, y_train, batch_size=batch_size, epochs=epochs,
+                            callbacks=[checkpoint,
+                                       callbacks
+                                       ],
+                            validation_data=(X_valid, y_valid), verbose=1)
+    except Exception as e:
+        runtimeInvalidInfo = {'calculationType': 'exception','info':str(format(e))}
+        response = http_client.modelTrain(str(runtimeInvalidInfo))
+        print("un expected error").format(e)
 
     # 指标返回
     call_res = call_back_metrics(X_train, X_valid, X_test, y_train, y_valid, y_test, model,local_img_path)
+
     # 回调，向服务端发送评估指标
-#    response = http_client.modelTrain(str(call_res))
+    try:
+        response = http_client.modelTrain(str(call_res))
+    except Exception as e:
+        print("un expected error").format(e)
     # http_client.call("sayHelloWorld",call_res)
 
     model.save(os.path.join(save_dir, model_name) + '.h5', overwrite=True)

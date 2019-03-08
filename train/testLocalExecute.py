@@ -5,7 +5,9 @@ import subprocess
 
 def parse_arguments(argv):
     ap = argparse.ArgumentParser()
+
     ap.add_argument('-gpus', type=str, help='gpu_list')
+    ap.add_argument('-frame', type=str, help='deep learning frame  name ')
     ap.add_argument('-network', type=str, help='network name ')
     ap.add_argument('-img_src', type=str, help='train image path')
     ap.add_argument('-width', type=int, help='img_resize_width')
@@ -35,6 +37,7 @@ def parse_arguments(argv):
 if __name__ == '__main__':
 
     arguments = parse_arguments(sys.argv[1:])
+    frame_name = arguments['frame'].lower()
     network_name = arguments['network'].lower()
     gpus = arguments['gpus']
     img_src = arguments['img_src']
@@ -82,7 +85,6 @@ if __name__ == '__main__':
     #                    '''
     #                  % (img_src,width,height,test_percent, validata_percent,channel_num,batch_size,lr,epochs,save_dir,model_name,model_id,model_userid, model_version,user_optimizer,ams_id,jsonrpcMlClientPoint))
     # 待执行脚本路径
-
     script_path = os.path.join(os.getcwd(), 'nets', network_name + '.py')
     print('/root/anaconda3/envs/cv/bin/python', script_path,
           '-gpus %s -img_src %s -width %d -height %d   -test_percent %f  -validata_percent  %f  -channel_num %d     -batch_size %d -lr %f -epochs %d -save_dir %s  -model_name %s -model_id %s -model_userid %s -model_version %s -user_Optimizer %s  -ams_id  %s -jsonrpcMlClientPoint %s'
