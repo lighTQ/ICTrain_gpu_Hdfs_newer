@@ -131,6 +131,10 @@ def preprocessing_img(img_src, width, height, validate_percent, test_percent, HD
             else:
                 continue
             img = cv2.resize(image, dsize=(width, height), interpolation=cv2.INTER_CUBIC)
+
+            # 如果传入的图片是灰度图，先转换
+            # X_train = cv2.cvtColor(img,  cv2.COLOR_GRAY2RGB)
+
             X.append(img)
             y.append(i)
     X = np.array(X).astype('float32') / 255.0
